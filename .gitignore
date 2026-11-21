@@ -1,0 +1,29 @@
+# Rust build output; keep Cargo.lock for reproducible application builds.
+/target/
+
+# Disk images and rescue maps can contain private source-disk data.
+*.img
+*.img.*
+*.iso
+*.raw
+*.vhd
+*.vhdx
+*.map
+*.map.tmp
+
+# Local editor and OS files.
+/.idea/
+/.vscode/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# Local credentials and configuration.
+.env
+.env.*
+!.env.example
+/.aws/
+
+# Recovery logs may contain private paths and device identifiers.
+*.log

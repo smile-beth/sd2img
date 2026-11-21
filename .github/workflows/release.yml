@@ -1,0 +1,115 @@
+name: Release Windows executable
+
+on:
+  push:
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+
+permissions:
+  contents: write
+
+# Preserve queued tags and never interrupt an in-progress publication.
+concurrency:
+  group: sd2img-release
+  cancel-in-progress: false
+  queue: max
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Test release tooling
+        run: python -m unittest discover -s .github/scripts -p "test_*.py" -v
+
+      - name: Fetch main for tag ancestry validation
+        run: git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+
+      - name: Validate tag and prepare executable version
+        id: version
+        run: python .github/scripts/release.py
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { throw "Cannot install Rust" }
+          rustup default stable
+          if ($LASTEXITCODE -ne 0) { throw "Cannot select Rust toolchain" }
+          rustup target add x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "Cannot install Windows x64 target" }
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build Windows x64 executable
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+
+      - name: Verify executable version
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $actual = & .\target\x86_64-pc-windows-msvc\release\sd2img.exe --version
+          if ($LASTEXITCODE -ne 0 -or $actual.Trim() -ne "sd2img $env:RELEASE_VERSION") {
+            throw "Executable version does not match the release"
+          }
+
+      - name: Package executable and checksum
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $distPath = Join-Path $env:RUNNER_TEMP "sd2img-release-dist"
+          New-Item -ItemType Directory -Path $distPath -Force | Out-Null
+          $exeName = "sd2img-$env:RELEASE_TAG-windows-x86_64.exe"
+          $exePath = Join-Path $distPath $exeName
+          Copy-Item -LiteralPath target/x86_64-pc-windows-msvc/release/sd2img.exe -Destination $exePath
+          $hash = (Get-FileHash -LiteralPath $exePath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $exeName" | Set-Content -LiteralPath "$exePath.sha256" -Encoding ascii
+          "RELEASE_DIST=$distPath" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $releaseJson = gh release view $env:RELEASE_TAG --json isDraft
+          if ($LASTEXITCODE -eq 0) {
+            $release = $releaseJson | ConvertFrom-Json
+            if (-not $release.isDraft) {
+              Write-Host "Release $env:RELEASE_TAG is already published."
+              exit 0
+            }
+          } else {
+            gh release create $env:RELEASE_TAG --verify-tag --draft --title "sd2img $env:RELEASE_TAG" --generate-notes
+            if ($LASTEXITCODE -ne 0) { throw "Cannot create draft release" }
+          }
+          $assets = @(Get-ChildItem -LiteralPath $env:RELEASE_DIST -File | ForEach-Object { $_.FullName })
+          gh release upload $env:RELEASE_TAG @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw "Cannot upload release assets" }
+          gh release edit $env:RELEASE_TAG --draft=false
+          if ($LASTEXITCODE -ne 0) { throw "Cannot publish release" }

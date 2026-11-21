@@ -1,0 +1,32 @@
+[package]
+name = "sd2img"
+version = "0.1.0"
+edition = "2021"
+description = "A Windows SD card imaging and rescue tool with resumable scans and reconnect recovery"
+license = "MIT"
+readme = "README.md"
+keywords = ["sd-card", "recovery", "disk-image", "windows"]
+categories = ["command-line-utilities", "filesystem"]
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+
+[dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Console",
+    "Win32_System_Ioctl",
+    "Win32_System_Memory",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_System_SystemInformation",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
