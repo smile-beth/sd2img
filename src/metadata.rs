@@ -176,7 +176,7 @@ impl MetadataPriority {
 
     fn observe_sector(&mut self, lba: u64, data: &[u8]) {
         if lba == 0 && data[510..512] == [0x55, 0xaa] {
-            for entry in data[446..510].chunks_exact(16) {
+            for entry in data[446..510].as_chunks::<16>().0 {
                 // Extended partitions and the protective MBR are not FAT volumes.
                 if ![0, 0x05, 0x0f, 0x85, 0xee].contains(&entry[4]) {
                     self.partition(u32le(entry, 8), u32le(entry, 12));
